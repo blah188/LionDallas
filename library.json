@@ -1,0 +1,12 @@
+{
+  "name": "LionDallas",
+  "version": "1.0.0",
+  "description": "Compact DS18B20 library over OneWire for the Lion* stack: search-once + stored addresses, non-blocking reads in LionCriticalTask, 4.0.6 POR/insufficient-power/fault detection. DS18B20 (0x28) only.",
+  "keywords": "ds18b20, onewire, temperature, dallas, esp8266",
+  "license": "MIT",
+  "frameworks": "arduino",
+  "platforms": ["espressif8266", "espressif32"],
+  "dependencies": {
+    "paulstoffregen/OneWire": "^2.3.8"
+  }
+}
