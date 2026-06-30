@@ -39,6 +39,12 @@ public:
                uint8_t resolution = 12);
     ~LionDallas();
 
+    // Владеет сырым OneWire* (_ds, удаляется в дтор) — копия = double-free.
+    // Копия и так неявно запрещена (члены Array некопируемы), но объявляем
+    // явно: контракт виден и переживёт рефактор, убравший Array-член.
+    LionDallas(const LionDallas &) = delete;
+    LionDallas &operator=(const LionDallas &) = delete;
+
     int   GetSenorCount();
     float GetTemperature(int idx = 0); // кэш; -127 при невалидном/out-of-range
     bool  IsParasite() const { return _parasite; }
