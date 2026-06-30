@@ -1,0 +1,14 @@
+# LionDallas keyword highlighting for the Arduino IDE
+# (fields are TAB-separated)
+
+LionDallas	KEYWORD1
+DeviceAddress	KEYWORD1
+
+GetSenorCount	KEYWORD2
+GetTemperature	KEYWORD2
+IsParasite	KEYWORD2
+GetAddressHex	KEYWORD2
+
+DALLAS_FIND_RETRIES	LITERAL1
+DALLAS_TEMP_RETRIES	LITERAL1
+TOLERANCE_127_MS	LITERAL1
