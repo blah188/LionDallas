@@ -14,7 +14,12 @@
 LionDallas::LionDallas(uint8_t pin, int tempInterval,
                        const DeviceAddress *fixedAddrs, uint8_t fixedCount,
                        uint8_t resolution)
-    : LionCriticalTask(F("DS"), tempInterval),
+    :
+#ifdef ESP32
+      RtosTask(false, tempInterval), // EveryMs FreeRTOS-задача (стартует в Setup ниже)
+#else
+      LionCriticalTask(F("DS"), tempInterval),
+#endif
       _addr(3), _temperatures(3), _times(3)
 {
     char rom[17];
@@ -58,6 +63,14 @@ LionDallas::LionDallas(uint8_t pin, int tempInterval,
     }
     // Запустить следующую конверсию — будет готова к первому тику задачи.
     startConversion();
+
+#ifdef ESP32
+    // ESP8266: LionCriticalTask уже зарегистрировался в базовом конструкторе и
+    // будет тикать из LionTask::Loop(). ESP32: RtosTask сам не стартует —
+    // порождаем FreeRTOS-задачу EveryMs здесь, когда кэш уже заполнен. Первый
+    // TaskBody() выполнится через tempInterval мс (vTaskDelayUntil).
+    Setup("DS", LIOND_TASK_CORE, LIOND_TASK_PRIO, LIOND_TASK_STACK);
+#endif
 }
 
 LionDallas::~LionDallas()
@@ -90,7 +103,13 @@ void LionDallas::GetAddressHex(int idx, char *out)
 // Неблокирующее чтение: сначала читаем результат прошлой конверсии по
 // хранимому адресу, затем запускаем следующую. Т.к. tempInterval (≈2000 мс) ≫
 // convMs (≤750 мс), к след. тику конверсия всегда готова — автомат не нужен.
-void LionDallas::TaskInnerBody()
+#ifdef ESP32
+void LionDallas::TaskBody() { pollAndConvert(); }      // шаг FreeRTOS EveryMs
+#else
+void LionDallas::TaskInnerBody() { pollAndConvert(); } // тик LionCriticalTask
+#endif
+
+void LionDallas::pollAndConvert()
 {
     for (int i = 0; i < _addr.Length(); i++)
     {

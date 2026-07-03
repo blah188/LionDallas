@@ -3,6 +3,31 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.1.0] - 2026-07-03
+
+### Added
+- **ESP32 support.** On ESP32 the periodic reads run in a dedicated
+  `LionRtosTask` FreeRTOS task (type `EveryMs`), spawned automatically by the
+  constructor — no `loop()` pump needed. ESP8266 is unchanged (reads run in a
+  `LionTask` `LionCriticalTask`, pumped from `loop()`). The public API is
+  identical on both platforms.
+- ESP32 FreeRTOS task tunables: `LIOND_TASK_CORE`, `LIOND_TASK_PRIO`,
+  `LIOND_TASK_STACK` (define before including / via `build_flags`).
+
+### Changed
+- Manifests now declare `espressif32` and platform-scoped dependencies
+  (`LionTask` on esp8266, `LionRtosTask` on esp32).
+
+### Notes
+- On ESP32 the cached readings are read lock-free from the caller's context
+  while the task writes them; this is safe because each slot is an aligned
+  32-bit `float`/`uint32_t` (atomic load/store on Xtensa) — a reader sees the
+  previous or the new value, never a torn one.
+- On ESP32, build with `-D ASYNC_LOG` (recommended; `-D NO_LOG_CLEARING` is a
+  minimal alternative). LionLogger's log-clearing path requires `ASYNC_LOG`, so
+  without one of these `<Logger.h>` fails to compile. This is a LionLogger
+  constraint, surfaced here because LionDallas logs through it.
+
 ## [1.0.0] - 2026-06-30
 
 First public release. Extracted from a private monorepo and packaged as a

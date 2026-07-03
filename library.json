@@ -1,8 +1,8 @@
 {
   "name": "LionDallas",
-  "version": "1.0.0",
-  "description": "Compact DS18B20 driver over OneWire for the Lion* stack: discover sensor addresses once and keep them, non-blocking reads inside a LionCriticalTask, last-good caching with a fault-tolerance window, and the DallasTemperature 4.0.6 power-on-reset / insufficient-power / fault detection. Optional fixed addresses skip the unreliable SearchROM on long buses. DS18B20 family (0x28) only. ESP8266 only (uses LionTask's LionCriticalTask and LionLogger).",
-  "keywords": "ds18b20, onewire, temperature, dallas, sensor, esp8266, embedded, arduino",
+  "version": "1.1.0",
+  "description": "Compact DS18B20 driver over OneWire for the Lion* stack: discover sensor addresses once and keep them, non-blocking periodic reads, last-good caching with a fault-tolerance window, and the DallasTemperature 4.0.6 power-on-reset / insufficient-power / fault detection. Optional fixed addresses skip the unreliable SearchROM on long buses. DS18B20 family (0x28) only. ESP8266 (reads in a LionTask LionCriticalTask, pumped from loop()) and ESP32 (reads in a dedicated LionRtosTask FreeRTOS task).",
+  "keywords": "ds18b20, onewire, temperature, dallas, sensor, esp8266, esp32, embedded, arduino",
   "repository": {
     "type": "git",
     "url": "https://github.com/blah188/LionDallas.git"
@@ -16,7 +16,7 @@
   ],
   "license": "MIT",
   "frameworks": "arduino",
-  "platforms": ["espressif8266"],
+  "platforms": ["espressif8266", "espressif32"],
   "headers": "LionDallas.h",
   "dependencies": [
     {
@@ -37,7 +37,14 @@
     {
       "owner": "leva",
       "name": "LionTask",
-      "version": "^1.0.0"
+      "version": "^1.0.0",
+      "platforms": "espressif8266"
+    },
+    {
+      "owner": "leva",
+      "name": "LionRtosTask",
+      "version": "^1.0.0",
+      "platforms": "espressif32"
     }
   ]
 }

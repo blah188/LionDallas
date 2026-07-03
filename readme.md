@@ -1,6 +1,6 @@
 # LionDallas
 
-Compact **DS18B20** driver over OneWire for the **Lion\*** stack (ESP8266).
+Compact **DS18B20** driver over OneWire for the **Lion\*** stack (ESP8266 & ESP32).
 
 - **Search once, keep the addresses.** Sensors are discovered at startup and then
   read by `MatchROM`. This cures the classic "the second sensor drops off after a
@@ -19,20 +19,43 @@ Compact **DS18B20** driver over OneWire for the **Lion\*** stack (ESP8266).
 
 ## Requirements / contract
 
-LionDallas is part of the Lion\* stack and is **ESP8266 only**. It relies on two
-sibling libraries, which the consumer must wire up:
+LionDallas is part of the Lion\* stack and runs on **ESP8266 and ESP32**. It
+relies on sibling libraries the consumer must wire up:
 
 - **LionLogger** — you **must define one global named `Logger`** (declared `extern`
   inside `<Logger.h>`). LionDallas logs discovery and diagnostics through it.
-- **LionTask** — `LionDallas` is a `LionCriticalTask`, so you **must pump
-  `LionTask::Loop()` from `loop()`** for periodic reads to run.
-
-> On ESP32 there is no `LionCriticalTask` (that scheduler is `LionRtosTask`), so
-> this library is not built for ESP32.
+  **On ESP32, build with `-D ASYNC_LOG`** (recommended: offloads filesystem
+  writes to a FreeRTOS task and satisfies LionLogger's log-clearing requirement;
+  otherwise `<Logger.h>` fails to compile — `-D NO_LOG_CLEARING` is the minimal
+  alternative if you don't want the async log task).
+- **Scheduler — platform-dependent, chosen automatically:**
+  - **ESP8266:** `LionDallas` is a `LionTask` `LionCriticalTask`, so you **must
+    pump `LionTask::Loop()` from `loop()`** for the periodic reads to run.
+  - **ESP32:** `LionDallas` runs its reads in its own `LionRtosTask` FreeRTOS
+    task (type `EveryMs`), spawned by the constructor. **Nothing to pump.**
 
 The constructor performs a **blocking** discovery + first read (~conversion time,
-up to ~770 ms at 12-bit). Create LionDallas once (global/static or `new`); it is
-**non-copyable** (it owns the `OneWire` instance).
+up to ~770 ms at 12-bit) in the caller's context. Create LionDallas once
+(global/static or `new`); it is **non-copyable** (it owns the `OneWire` instance).
+On **ESP32** it also owns a FreeRTOS task, so keep the instance alive for the
+program's lifetime — don't `delete` it (a delete from another context would race
+the read task).
+
+> **ESP32 concurrency:** `GetTemperature()` / `GetSenorCount()` /
+> `GetAddressHex()` may be called from any task while the read task updates the
+> cache. Reads are lock-free: each cached slot is an aligned 32-bit
+> `float`/`uint32_t` (atomic load/store on Xtensa), so a caller always sees the
+> previous or the new value, never a torn one.
+
+### ESP32 task tunables
+
+Define before including `<LionDallas.h>` or via `build_flags`:
+
+| Macro | Default | Meaning |
+| --- | --- | --- |
+| `LIOND_TASK_CORE` | `tskNO_AFFINITY` | FreeRTOS core for the read task. |
+| `LIOND_TASK_PRIO` | `5` | Task priority. |
+| `LIOND_TASK_STACK` | `4096` | Task stack size (bytes). |
 
 `GetTemperature()` returns `-127` both for a disconnected sensor and for an
 out-of-range index — treat any value `< -100` as "no reading".
@@ -42,17 +65,24 @@ out-of-range index — treat any value `< -100` as "no reading".
 PlatformIO (`platformio.ini`):
 
 ```ini
+; ESP8266
 lib_deps = leva/LionDallas
+
+; ESP32
+lib_deps = leva/LionDallas
+build_flags = -D ASYNC_LOG              ; required by LionLogger on ESP32
 ```
 
-This pulls in `paulstoffregen/OneWire`, `leva/LionArray`, `leva/LionLogger` and
-`leva/LionTask` automatically.
+This pulls in `paulstoffregen/OneWire`, `leva/LionArray`, `leva/LionLogger`, plus
+`leva/LionTask` (ESP8266) or `leva/LionRtosTask` (ESP32) automatically.
 
 ## Usage
 
 ```cpp
 #include <Logger.h>      // LionLogger
-#include <LionTask.h>    // LionTask scheduler
+#ifndef ESP32
+#include <LionTask.h>    // ESP8266 scheduler (pumped from loop())
+#endif
 #include <LionDallas.h>
 
 MyLogger Logger(ILogger::SerialPort, ILogger::LvlDebug);   // required global
@@ -62,12 +92,17 @@ LionDallas *dallas = nullptr;
 void setup() {
     Serial.begin(115200);
     Logger.Setup();
+#ifndef ESP32
     LionTask::Setup();
+#endif
     dallas = new LionDallas(/*pin*/ 4, /*intervalMs*/ 2000);   // auto-discover
 }
 
 void loop() {
-    LionTask::Loop();   // drives the periodic reads
+#ifndef ESP32
+    LionTask::Loop();   // ESP8266: drives the periodic reads
+#endif
+    // ESP32: reads run in LionDallas's own FreeRTOS task — nothing to pump.
 
     for (int i = 0; i < dallas->GetSenorCount(); i++)
         Serial.printf("[%d] = %.2f C\n", i, dallas->GetTemperature(i));
