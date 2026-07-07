@@ -139,6 +139,37 @@ dallas = new LionDallas(4, 2000, addrs, 2);
 | `DALLAS_TEMP_RETRIES` | `3` | Scratchpad re-reads per sensor per tick. |
 | `TOLERANCE_127_MS` | `10000` | How long a last-good value is held over a fault. |
 
+## Troubleshooting — `SearchROM` reliability on ESP8266
+
+**Symptom.** On some builds, startup discovery reports **0 devices** even with a
+healthy sensor on a *short* bus (e.g. a D1-mini DS18B20 shield). The result is
+**deterministic for a given binary** — retries within a run and power-cycles do
+**not** change it — but it **flips on recompile** (a rebuild usually starts
+finding the sensor again). Reading the *same* sensor by **fixed address
+(`MatchROM`) works reliably** on the very binaries where `SearchROM` finds nothing.
+
+**What it is (and isn't).** It is not the wiring (reproduces on a shield with short
+traces), not Wi-Fi interrupts (reproduces *before* `WiFi.begin`), and not a "cold
+bus" (the `reset()` presence pulse is detected fine). It looks like a
+**timing-margin issue in the 64-bit `SearchROM` enumeration**: `SearchROM` has *no*
+tolerance for a single mis-sampled read slot — one bad bit sends the search down the
+wrong branch and the whole enumeration aborts — whereas a scratchpad read survives
+the occasional bad bit via its CRC check plus `DALLAS_TEMP_RETRIES`. The exact
+timing margin shifts with code layout, so one binary is consistently good and the
+next consistently bad.
+
+**Recommended fix.** For nodes with **known sensors, use fixed addresses**
+(see *Fixed addresses* above). `MatchROM` is deterministic and unaffected by this,
+so it is the supported, reliable path — not merely a long-bus workaround.
+
+**Unverified avenue (do NOT assume it fixes this).** A common suspicion is
+flash-cache (IROM) jitter in the timing-critical OneWire primitives, "fixable" by
+forking `paulstoffregen/OneWire` to mark `reset` / `read_bit` / `write_bit`
+`IRAM_ATTR`. **This is unverified here, and there is evidence against it:** those
+same primitives back `MatchROM`, which stays reliable on the "bad" binaries — so a
+globally-broken bit timing does not fit. If you investigate, treat IRAM placement
+as an experiment to measure, not a known cure.
+
 ## License
 
 MIT — see [LICENSE](LICENSE). Portions of `src/LionDallasPort.cpp` are ported from
