@@ -1,22 +1,22 @@
 //
-// LionDallas.cpp — собственная логика Lion-стека: поиск-один-раз + хранение
-// адресов, неблокирующее чтение в LionCriticalTask, кэш + TOLERANCE_127_MS.
-// Портированные из DallasTemperature (MIT) примитивы — в LionDallasPort.cpp.
+// LionDallas.cpp — the Lion stack's own logic: search-once + stored addresses,
+// non-blocking reads in the scheduler task, cache + TOLERANCE_127_MS.
+// Primitives ported from DallasTemperature (MIT) live in LionDallasPort.cpp.
 //
 #include "LionDallas.h"
 
-#define STARTCONVO 0x44 // запустить конверсию температуры (broadcast)
+#define STARTCONVO 0x44 // start temperature conversion (broadcast)
 
-// Семейство DS18B20 и порог «битого» значения.
+// DS18B20 family code and the "bad value" threshold.
 #define DS18B20_FAMILY 0x28
-#define BAD_TEMP_C     -100 // всё ниже — fault-сентинел (-127/-250/-251/-25x)
+#define BAD_TEMP_C     -100 // anything below is a fault sentinel (-127/-250/-251/-25x)
 
 LionDallas::LionDallas(uint8_t pin, int tempInterval,
                        const DeviceAddress *fixedAddrs, uint8_t fixedCount,
-                       uint8_t resolution)
+                       uint8_t resolution, bool internalPullup)
     :
-#ifdef ESP32
-      RtosTask(false, tempInterval), // EveryMs FreeRTOS-задача (стартует в Setup ниже)
+#ifdef LIOND_RTOS
+      RtosTask(false, tempInterval), // EveryMs FreeRTOS task (started by Setup below)
 #else
       LionCriticalTask(F("DS"), tempInterval),
 #endif
@@ -24,31 +24,33 @@ LionDallas::LionDallas(uint8_t pin, int tempInterval,
 {
     char rom[17];
     _ds = new OneWire(_pin = pin);
+    if (internalPullup)
+        pinMode(pin, INPUT_PULLUP); // after OneWire: its pinMode(INPUT) clears the pull-up
     _resolution = resolution;
 
-    // 1) Поиск-один-раз + хранение (или fixedAddrs — длинная линия).
+    // 1) Search once + store (or fixedAddrs — long line).
     searchAndStore(fixedAddrs, fixedCount);
 
-    // 2) Parasite-детект (любой датчик в parasite-режиме переводит шину).
+    // 2) Parasite detection (any sensor in parasite mode switches the whole bus).
     if (_addr.Length() > 0)
         _parasite = readPowerSupply(nullptr);
 
-    // 3) Разрешение каждому датчику.
+    // 3) Resolution for every sensor.
     for (int i = 0; i < _addr.Length(); i++)
         applyResolution(_addr[i], _resolution);
 
-    // Гарантия pollMs >= convMs(res): иначе конверсия не успеет → POR/мусор.
+    // Ensure pollMs >= convMs(res): otherwise the conversion won't finish → POR/garbage.
     uint16_t cms = convMs(_resolution);
     if ((uint32_t)tempInterval < cms)
         Logger.Log_P(ILogger::LvlWarning,
-                     PSTR("LionDallas: pollMs %d < convMs %u (res %d) — конверсия не успеет"),
+                     PSTR("LionDallas: pollMs %d < convMs %u (res %d) - conversion won't finish"),
                      tempInterval, cms, _resolution);
 
     Logger.Log_P(ILogger::LvlDebug,
                  PSTR("LionDallas pin %d: %d devices, parasite=%d, res %d"),
                  pin, _addr.Length(), _parasite, _resolution);
 
-    // 4) Стартовое (блокирующее) чтение, чтобы кэш не был пустым.
+    // 4) Initial (blocking) read so the cache is never empty.
     _temperatures.Reserve(_addr.Length());
     _times.Reserve(_addr.Length());
     startConversion();
@@ -61,14 +63,14 @@ LionDallas::LionDallas(uint8_t pin, int tempInterval,
         romHex(_addr[i], rom);
         Logger.Log_P(ILogger::LvlDebug, PSTR("Dallas[%d] (%s) = %.2f"), i, rom, t);
     }
-    // Запустить следующую конверсию — будет готова к первому тику задачи.
+    // Start the next conversion — it will be ready by the task's first tick.
     startConversion();
 
-#ifdef ESP32
-    // ESP8266: LionCriticalTask уже зарегистрировался в базовом конструкторе и
-    // будет тикать из LionTask::Loop(). ESP32: RtosTask сам не стартует —
-    // порождаем FreeRTOS-задачу EveryMs здесь, когда кэш уже заполнен. Первый
-    // TaskBody() выполнится через tempInterval мс (vTaskDelayUntil).
+#ifdef LIOND_RTOS
+    // LionCriticalTask (ESP8266, ESP32 with LIONDALLAS_LION_TASKS) has already registered
+    // itself in the base constructor and is ticked from LionTask::Loop(). RtosTask does
+    // not start on its own — spawn the EveryMs FreeRTOS task here, once the cache is
+    // filled. The first TaskBody() runs after tempInterval ms (vTaskDelayUntil).
     Setup("DS", LIOND_TASK_CORE, LIOND_TASK_PRIO, LIOND_TASK_STACK);
 #endif
 }
@@ -100,13 +102,13 @@ void LionDallas::GetAddressHex(int idx, char *out)
     romHex(_addr[idx], out);
 }
 
-// Неблокирующее чтение: сначала читаем результат прошлой конверсии по
-// хранимому адресу, затем запускаем следующую. Т.к. tempInterval (≈2000 мс) ≫
-// convMs (≤750 мс), к след. тику конверсия всегда готова — автомат не нужен.
-#ifdef ESP32
-void LionDallas::TaskBody() { pollAndConvert(); }      // шаг FreeRTOS EveryMs
+// Non-blocking read: first read the previous conversion's result by stored
+// address, then start the next one. Since tempInterval (≈2000 ms) ≫ convMs
+// (≤750 ms), the conversion is always ready by the next tick — no state machine.
+#ifdef LIOND_RTOS
+void LionDallas::TaskBody() { pollAndConvert(); }      // FreeRTOS EveryMs step
 #else
-void LionDallas::TaskInnerBody() { pollAndConvert(); } // тик LionCriticalTask
+void LionDallas::TaskInnerBody() { pollAndConvert(); } // LionCriticalTask tick
 #endif
 
 void LionDallas::pollAndConvert()
@@ -116,7 +118,7 @@ void LionDallas::pollAndConvert()
         float t = readSensor(_addr[i]);
         if (t < BAD_TEMP_C)
         {
-            // Битое/-127: держим прошлое значение ещё TOLERANCE_127_MS.
+            // Bad/-127: keep the previous value for TOLERANCE_127_MS more.
             if (millis() - _times[i] < TOLERANCE_127_MS)
                 continue;
             else if (_temperatures[i] > BAD_TEMP_C)
@@ -134,10 +136,10 @@ void LionDallas::pollAndConvert()
     startConversion();
 }
 
-// --- своё ---
+// --- own code ---
 
-// Поиск-один-раз + хранение. fixedAddrs → пропустить SearchROM (длинная линия).
-// Иначе collecting-search: повторяем проход, оставляем самый полный результат.
+// Search once + store. fixedAddrs → skip SearchROM (long line).
+// Otherwise a collecting search: repeat the pass, keep the most complete result.
 bool LionDallas::searchAndStore(const DeviceAddress *fixedAddrs, uint8_t fixedCount)
 {
     char rom[17];
@@ -165,7 +167,7 @@ bool LionDallas::searchAndStore(const DeviceAddress *fixedAddrs, uint8_t fixedCo
             if (addr[0] == DS18B20_FAMILY && OneWire::crc8(addr, 7) == addr[7])
                 memcpy(tmp[found++], addr, sizeof(DeviceAddress));
         }
-        if (found > best) // запомнить самый полный проход
+        if (found > best) // remember the most complete pass
         {
             _addr.Clear();
             for (int i = 0; i < found; i++)
@@ -185,7 +187,7 @@ bool LionDallas::searchAndStore(const DeviceAddress *fixedAddrs, uint8_t fixedCo
     return best > 0;
 }
 
-// requestTemperatures: reset+skip+STARTCONVO всем (неблокирующий).
+// requestTemperatures: reset+skip+STARTCONVO to all (non-blocking).
 void LionDallas::startConversion()
 {
     _ds->reset();
@@ -193,7 +195,7 @@ void LionDallas::startConversion()
     _ds->write(STARTCONVO, _parasite ? 1 : 0);
 }
 
-// getTemp-обёртка: readScratch (+crc) → calcRaw → °C, с ретраями.
+// getTemp wrapper: readScratch (+crc) → calcRaw → °C, with retries.
 float LionDallas::readSensor(const uint8_t *rom)
 {
     uint8_t sp[9];
@@ -203,8 +205,8 @@ float LionDallas::readSensor(const uint8_t *rom)
     return -127; // DEVICE_DISCONNECTED_C
 }
 
-// ROM 8 байт -> 16 hex-символов в стековый буфер out[17]. Без String/кучи —
-// только для лога. Один sprintf_P, побайтно (endian не важен).
+// ROM 8 bytes -> 16 hex chars into a stack buffer out[17]. No String/heap —
+// logging only. One sprintf_P, byte by byte (endianness irrelevant).
 void LionDallas::romHex(const uint8_t *rom, char *out)
 {
     sprintf_P(out, PSTR("%02X%02X%02X%02X%02X%02X%02X%02X"),

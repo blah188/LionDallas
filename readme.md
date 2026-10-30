@@ -33,6 +33,11 @@ relies on sibling libraries the consumer must wire up:
     pump `LionTask::Loop()` from `loop()`** for the periodic reads to run.
   - **ESP32:** `LionDallas` runs its reads in its own `LionRtosTask` FreeRTOS
     task (type `EveryMs`), spawned by the constructor. **Nothing to pump.**
+  - **ESP32 with `-D LIONDALLAS_LION_TASKS`:** same as ESP8266 — a
+    `LionCriticalTask`, pump `LionTask::Loop()`. Use it in cooperative builds
+    (one loop task, LionTask scheduler, synchronous LionLogger without
+    `ASYNC_LOG`), where a second logging task is not allowed. Add `leva/LionTask`
+    to your `lib_deps` — the manifests pull it in on ESP8266 only.
 
 The constructor performs a **blocking** discovery + first read (~conversion time,
 up to ~770 ms at 12-bit) in the caller's context. Create LionDallas once
@@ -125,7 +130,7 @@ dallas = new LionDallas(4, 2000, addrs, 2);
 
 | Member | Description |
 | --- | --- |
-| `LionDallas(pin, intervalMs, fixedAddrs = nullptr, fixedCount = 0, resolution = 12)` | Construct, discover (or use `fixedAddrs`), set resolution, take a first reading. |
+| `LionDallas(pin, intervalMs, fixedAddrs = nullptr, fixedCount = 0, resolution = 12, internalPullup = false)` | Construct, discover (or use `fixedAddrs`), set resolution, take a first reading. `internalPullup` enables the chip's weak pull-up instead of an external resistor (short wire, one sensor). |
 | `int GetSenorCount()` | Number of sensors found/stored. |
 | `float GetTemperature(int idx = 0)` | Cached °C for sensor `idx`; `-127` if invalid/out-of-range. |
 | `bool IsParasite() const` | `true` if any sensor is parasite-powered. |

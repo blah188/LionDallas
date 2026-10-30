@@ -1,6 +1,6 @@
 {
   "name": "LionDallas",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Compact DS18B20 driver over OneWire for the Lion* stack: discover sensor addresses once and keep them, non-blocking periodic reads, last-good caching with a fault-tolerance window, and the DallasTemperature 4.0.6 power-on-reset / insufficient-power / fault detection. Optional fixed addresses skip the unreliable SearchROM on long buses. DS18B20 family (0x28) only. ESP8266 (reads in a LionTask LionCriticalTask, pumped from loop()) and ESP32 (reads in a dedicated LionRtosTask FreeRTOS task).",
   "keywords": "ds18b20, onewire, temperature, dallas, sensor, esp8266, esp32, embedded, arduino",
   "repository": {

@@ -3,6 +3,30 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.2.0] - 2026-10-30
+
+### Added
+- `-D LIONDALLAS_LION_TASKS`: on ESP32, run the reads in a `LionTask`
+  `LionCriticalTask` pumped from `loop()` — exactly as on ESP8266 — instead of a
+  dedicated FreeRTOS task. For cooperative ESP32 builds (synchronous web server,
+  LionTask scheduler, synchronous LionLogger): there the extra FreeRTOS task is
+  pointless, and a synchronous LionLogger allows exactly one logging task. A
+  flag rather than auto-detection because the library compiles in its own
+  translation unit and never sees the consumer's headers. With the flag the
+  consumer lists `leva/LionTask` in `lib_deps` itself (the manifests scope it to
+  esp8266). Default behaviour on both platforms is unchanged.
+- Constructor parameter `internalPullup` (last, default `false`): use the chip's
+  internal pull-up on the bus pin instead of an external 4.7–10 kΩ resistor. It
+  is set right after the `OneWire` constructor, whose `pinMode(INPUT)` would
+  otherwise clear it; `OneWire` later toggles only the pin direction, so the
+  pull-up survives. Weak (~45 kΩ on ESP32): short wire, single sensor. A
+  parameter rather than a build flag because the pull-up belongs to the wiring
+  of one bus, not to the whole build.
+
+### Changed
+- Source comments and the "conversion won't finish" warning text translated
+  to English (were Russian).
+
 ## [1.1.0] - 2026-07-03
 
 ### Added

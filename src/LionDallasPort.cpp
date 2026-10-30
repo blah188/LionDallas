@@ -1,7 +1,7 @@
 //
-// LionDallasPort.cpp — методы DS18B20, ПОРТИРОВАННЫЕ КАК ЕСТЬ из
-// DallasTemperature 4.x (scratchpad / конверсия / разрешение / fault-детект).
-// Главная ценность — детект POR (0x0550) и insufficient-power из 4.0.6.
+// LionDallasPort.cpp — DS18B20 methods PORTED AS-IS from DallasTemperature 4.x
+// (scratchpad / conversion / resolution / fault detection).
+// The main value is the POR (0x0550) and insufficient-power detection from 4.0.6.
 //
 // ---------------------------------------------------------------------------
 // Portions ported from the Arduino Temperature Control Library (DallasTemperature).
@@ -29,24 +29,24 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 //
-// Modifications for LionDallas: сведено к семейству DS18B20 (0x28); выброшены
-// alarms / EEPROM save-recall / userData / мульти-семейства; методы превращены
-// в члены класса LionDallas, использующие OneWire* _ds. © правки — Lion-стек.
+// Modifications for LionDallas: reduced to the DS18B20 family (0x28); dropped
+// alarms / EEPROM save-recall / userData / multiple families; methods turned
+// into LionDallas members using OneWire* _ds. © of the modifications — Lion stack.
 // ---------------------------------------------------------------------------
 //
 #include "LionDallas.h"
 
 // OneWire commands
-#define STARTCONVO      0x44 // запустить конверсию температуры
-#define READSCRATCH     0xBE // прочитать scratchpad
-#define WRITESCRATCH    0x4E // записать scratchpad
-#define READPOWERSUPPLY 0xB4 // определить, нужен ли parasite-power
+#define STARTCONVO      0x44 // start temperature conversion
+#define READSCRATCH     0xBE // read scratchpad
+#define WRITESCRATCH    0x4E // write scratchpad
+#define READPOWERSUPPLY 0xB4 // determine whether parasite power is used
 
 // Scratchpad locations
 #define TEMP_LSB        0
 #define TEMP_MSB        1
-#define HIGH_ALARM_TEMP 2 // у DS18B20 — байт TH (используем под config write)
-#define LOW_ALARM_TEMP  3 // у DS18B20 — байт TL
+#define HIGH_ALARM_TEMP 2 // DS18B20: TH byte (written back during config write)
+#define LOW_ALARM_TEMP  3 // DS18B20: TL byte
 #define CONFIGURATION   4
 #define COUNT_REMAIN    6
 #define SCRATCHPAD_CRC  8
@@ -60,7 +60,7 @@
 #define DS18B20MODEL 0x28
 #define DSROM_FAMILY 0
 
-// Error / sentinel raw codes (как в DallasTemperature 4.0.6)
+// Error / sentinel raw codes (as in DallasTemperature 4.0.6)
 #define DEVICE_DISCONNECTED_C      -127
 #define DEVICE_DISCONNECTED_RAW    -7040
 #define DEVICE_FAULT_OPEN_C        -254
@@ -74,9 +74,9 @@
 #define DEVICE_INSUFFICIENT_POWER_C   -250
 #define DEVICE_INSUFFICIENT_POWER_RAW -32000
 
-// --- readScratchPad + isAllZeros + crc8 (исходно readScratchPad/isConnected) ---
-// reset+select+READSCRATCH, 9 байт; валидно если шина ответила, scratchpad не
-// весь нулевой и crc8 сошёлся. Возвращает bool.
+// --- readScratchPad + isAllZeros + crc8 (originally readScratchPad/isConnected) ---
+// reset+select+READSCRATCH, 9 bytes; valid if the bus answered, the scratchpad is
+// not all zeros and crc8 matches. Returns bool.
 bool LionDallas::readScratch(const uint8_t *rom, uint8_t *sp)
 {
     if (_ds->reset() == 0)
@@ -102,8 +102,8 @@ bool LionDallas::readScratch(const uint8_t *rom, uint8_t *sp)
 }
 
 // --- writeScratchPad (DS18B20: TH, TL, CONFIG) ---
-// Без EEPROM-сохранения (COPYSCRATCH): разрешение переустанавливаем на каждом
-// старте, переживать перезагрузку датчика не требуется.
+// No EEPROM save (COPYSCRATCH): the resolution is re-applied on every start,
+// it does not need to survive a sensor power cycle.
 void LionDallas::writeScratch(const uint8_t *rom, const uint8_t *sp)
 {
     _ds->reset();
@@ -111,16 +111,16 @@ void LionDallas::writeScratch(const uint8_t *rom, const uint8_t *sp)
     _ds->write(WRITESCRATCH);
     _ds->write(sp[HIGH_ALARM_TEMP]); // TH
     _ds->write(sp[LOW_ALARM_TEMP]);  // TL
-    _ds->write(sp[CONFIGURATION]);   // config (разрешение)
+    _ds->write(sp[CONFIGURATION]);   // config (resolution)
     _ds->reset();
 }
 
-// --- calculateTemperature (4.0.6) — raw + детект POR/insufficient/fault ---
+// --- calculateTemperature (4.0.6) — raw + POR/insufficient/fault detection ---
 int32_t LionDallas::calcRaw(const uint8_t *rom, uint8_t *sp)
 {
     int32_t fpTemperature = 0;
 
-    // бит 15 — знаковый у всех поддерживаемых датчиков
+    // bit 15 is the sign bit on all supported sensors
     int32_t neg = 0x0;
     if (sp[TEMP_MSB] & 0x80)
         neg = 0xFFF80000;
@@ -133,15 +133,15 @@ int32_t LionDallas::calcRaw(const uint8_t *rom, uint8_t *sp)
     if (rom[DSROM_FAMILY] == DS18B20MODEL)
     {
         if (sp[TEMP_LSB] == 0x50 && sp[TEMP_MSB] == 0x05 && sp[COUNT_REMAIN] == 0x0C)
-            return DEVICE_POWER_ON_RESET_RAW;     // заводской 0x0550 — конверсий не было
+            return DEVICE_POWER_ON_RESET_RAW;     // factory 0x0550 — no conversion yet
         else if (sp[TEMP_LSB] == 0xFF && sp[TEMP_MSB] == 0x07)
-            return DEVICE_INSUFFICIENT_POWER_RAW; // не хватило питания на конверсию
+            return DEVICE_INSUFFICIENT_POWER_RAW; // not enough power for the conversion
     }
 
     return fpTemperature;
 }
 
-// --- rawToCelsius (4.0.6) — raw -> °C, fault-сентинелы наружу как C-значения ---
+// --- rawToCelsius (4.0.6) — raw -> °C, fault sentinels passed out as C values ---
 float LionDallas::rawToC(int32_t raw)
 {
     switch (raw)
@@ -169,7 +169,7 @@ uint16_t LionDallas::convMs(uint8_t res)
     }
 }
 
-// --- setResolution(addr, res) — записать config-регистр 9..12 бит ---
+// --- setResolution(addr, res) — write the config register, 9..12 bits ---
 void LionDallas::applyResolution(const uint8_t *rom, uint8_t res)
 {
     if (res < 9)  res = 9;
@@ -196,7 +196,7 @@ void LionDallas::applyResolution(const uint8_t *rom, uint8_t res)
     }
 }
 
-// --- readPowerSupply — true, если датчик в parasite-режиме ---
+// --- readPowerSupply — true if a sensor is in parasite mode ---
 bool LionDallas::readPowerSupply(const uint8_t *rom)
 {
     bool parasiteMode = false;
